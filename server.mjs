@@ -200,6 +200,69 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { ok: true, name: "mcp-hub", storage: storageMode() });
     }
 
+    // --- Minimal OAuth shim (Claude.ai custom connector uchun) ---
+    // Haqiqiy login yo'q: URL dagi ?k= kaliti asosiy himoya.
+    const origin = `${url.protocol}//${url.host}`;
+
+    if (req.method === "GET" && (p === "/.well-known/oauth-protected-resource" || p.startsWith("/.well-known/oauth-protected-resource"))) {
+      return send(res, 200, {
+        resource: origin,
+        authorization_servers: [origin],
+        scopes_supported: ["mcp"],
+        bearer_methods_supported: ["header"],
+      });
+    }
+
+    if (req.method === "GET" && (p === "/.well-known/oauth-authorization-server" || p === "/.well-known/openid-configuration")) {
+      return send(res, 200, {
+        issuer: origin,
+        authorization_endpoint: `${origin}/oauth/authorize`,
+        token_endpoint: `${origin}/oauth/token`,
+        registration_endpoint: `${origin}/oauth/register`,
+        response_types_supported: ["code"],
+        grant_types_supported: ["authorization_code", "refresh_token"],
+        code_challenge_methods_supported: ["S256", "plain"],
+        token_endpoint_auth_methods_supported: ["none", "client_secret_post", "client_secret_basic"],
+        scopes_supported: ["mcp"],
+      });
+    }
+
+    if (req.method === "POST" && p === "/oauth/register") {
+      const body = await readBody(req).catch(() => ({}));
+      const clientId = "mcp-hub-public-client";
+      return send(res, 201, {
+        client_id: clientId,
+        client_id_issued_at: Math.floor(Date.now() / 1000),
+        client_secret_expires_at: 0,
+        redirect_uris: body.redirect_uris || ["https://claude.ai/api/mcp/auth_callback"],
+        grant_types: ["authorization_code", "refresh_token"],
+        response_types: ["code"],
+        token_endpoint_auth_method: "none",
+        client_name: body.client_name || "Claude",
+      });
+    }
+
+    if (req.method === "GET" && p === "/oauth/authorize") {
+      const redirectUri = url.searchParams.get("redirect_uri") || "https://claude.ai/api/mcp/auth_callback";
+      const state = url.searchParams.get("state") || "";
+      const code = "hub_ok_" + token(12);
+      const sep = redirectUri.includes("?") ? "&" : "?";
+      const loc = `${redirectUri}${sep}code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`;
+      res.writeHead(302, { Location: loc, "Access-Control-Allow-Origin": "*" });
+      return res.end();
+    }
+
+    if (req.method === "POST" && p === "/oauth/token") {
+      // Dummy token — asosiy himoya URL dagi k= kaliti
+      return send(res, 200, {
+        access_token: "hub_token_" + token(16),
+        token_type: "Bearer",
+        expires_in: 3600 * 24 * 365,
+        scope: "mcp",
+      });
+    }
+    // --- OAuth shim tugadi ---
+
     // Ro'yxatdan o'tish
     if (req.method === "POST" && p === "/api/register") {
       const body = await readBody(req);
