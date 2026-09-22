@@ -184,7 +184,11 @@ const server = http.createServer(async (req, res) => {
       return res.end();
     }
 
-    const url = new URL(req.url, "http://localhost");
+    // Haqiqiy public origin (Render/Vercel proxy orqali)
+    const proto = String(req.headers["x-forwarded-proto"] || "https").split(",")[0].trim();
+    const host = String(req.headers["x-forwarded-host"] || req.headers.host || "localhost").split(",")[0].trim();
+    const origin = `${proto}://${host}`;
+    const url = new URL(req.url, origin);
     const p = url.pathname;
 
     if (req.method === "GET" && p === "/") return staticFile(res, "index.html");
@@ -202,7 +206,6 @@ const server = http.createServer(async (req, res) => {
 
     // --- Minimal OAuth shim (Claude.ai custom connector uchun) ---
     // Haqiqiy login yo'q: URL dagi ?k= kaliti asosiy himoya.
-    const origin = `${url.protocol}//${url.host}`;
 
     if (req.method === "GET" && (p === "/.well-known/oauth-protected-resource" || p.startsWith("/.well-known/oauth-protected-resource"))) {
       return send(res, 200, {
