@@ -40,7 +40,11 @@ async function api(path, options = {}) {
   }
   const res = await fetch(path, { ...options, headers });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `Xato ${res.status}`);
+  if (!res.ok) {
+    const err = new Error(data.error || `Xato ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
   return data;
 }
 
@@ -48,7 +52,12 @@ async function authApi(path, options = {}) {
   let body = {};
   if (options.body) { try { body = JSON.parse(options.body); } catch {} }
   body._password = state.password;
-  return api(path, { ...options, body: JSON.stringify(body) });
+  body.password = state.password;
+  const headers = { ...(options.headers || {}) };
+  if (state.password) {
+    headers.Authorization = `Bearer ${state.password}`;
+  }
+  return api(path, { ...options, headers, body: JSON.stringify(body) });
 }
 
 function renderTopActions() {
@@ -275,7 +284,18 @@ async function loadAccount() {
     state.username = account.username;
     saveSession();
     renderDash();
-  } catch { renderAuth(); }
+  } catch (err) {
+    // Faqat aniq auth xatolarida logout (401), boshqa xatolarda toast ko'rsatib saqlab qolamiz
+    if (err.status === 401 || /parol|hisob topilmadi|noto'g'ri/i.test(err.message || "")) {
+      state.account = null;
+      renderAuth();
+    } else {
+      toast(err.message || "Yuklashda xato", "err");
+      // Avvalgi sessiya bo'lsa dashboardni ko'rsatishga urinish
+      if (state.account) renderDash();
+      else renderAuth();
+    }
+  }
 }
 
 async function addConnector() {

@@ -26,6 +26,12 @@ const MIME = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8",
+  ".png": "image/png",
+  ".ico": "image/x-icon",
+  ".svg": "image/svg+xml",
+  ".webp": "image/webp",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
 };
 
 function send(res, status, body, headers = {}) {
@@ -185,6 +191,11 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && p === "/app.js") return staticFile(res, "app.js");
     if (req.method === "GET" && p === "/styles.css") return staticFile(res, "styles.css");
 
+    // Static assets (favicon, logo, etc.)
+    if (req.method === "GET" && /^\/(favicon|logo|apple-touch-icon)/.test(p)) {
+      return staticFile(res, path.basename(p));
+    }
+
     if (req.method === "GET" && p === "/api/health") {
       return send(res, 200, { ok: true, name: "mcp-hub", storage: storageMode() });
     }
@@ -215,7 +226,7 @@ const server = http.createServer(async (req, res) => {
     let m = match(p, "/api/account/:accountId");
     if (m && (req.method === "GET" || req.method === "POST")) {
       const body = await readBody(req);
-      const pass = passwordFrom(req) || body?.password;
+      const pass = passwordFrom(req) || body?._password || body?.password;
       const account = await requireAdmin(m.accountId, pass);
       return send(res, 200, publicAccount(account));
     }
@@ -224,7 +235,7 @@ const server = http.createServer(async (req, res) => {
     m = match(p, "/api/account/:accountId/connectors");
     if (m && req.method === "POST") {
       const body = await readBody(req);
-      const pass = passwordFrom(req) || body?.password;
+      const pass = passwordFrom(req) || body?._password || body?.password;
       const account = await requireAdmin(m.accountId, pass);
       const { _password: _p1, password: _p2, ...connBody } = body;
       const connector = normalizeConnector(connBody);
@@ -240,7 +251,7 @@ const server = http.createServer(async (req, res) => {
     m = match(p, "/api/account/:accountId/connectors/:id");
     if (m && req.method === "PUT") {
       const body = await readBody(req);
-      const pass = passwordFrom(req) || body?.password;
+      const pass = passwordFrom(req) || body?._password || body?.password;
       const account = await requireAdmin(m.accountId, pass);
       const current = account.connectors.find((x) => x.id === m.id);
       if (!current) return send(res, 404, { error: "Connector topilmadi" });
@@ -253,7 +264,7 @@ const server = http.createServer(async (req, res) => {
 
     if (m && req.method === "DELETE") {
       const body = await readBody(req);
-      const pass = passwordFrom(req) || body?.password;
+      const pass = passwordFrom(req) || body?._password || body?.password;
       const account = await requireAdmin(m.accountId, pass);
       account.connectors = account.connectors.filter((x) => x.id !== m.id);
       await saveAccount(account);
@@ -264,7 +275,7 @@ const server = http.createServer(async (req, res) => {
     m = match(p, "/api/account/:accountId/connectors/:id/test");
     if (m && req.method === "POST") {
       const body = await readBody(req);
-      const pass = passwordFrom(req) || body?.password;
+      const pass = passwordFrom(req) || body?._password || body?.password;
       const account = await requireAdmin(m.accountId, pass);
       const connector = account.connectors.find((x) => x.id === m.id);
       if (!connector) return send(res, 404, { error: "Connector topilmadi" });

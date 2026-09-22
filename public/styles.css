@@ -63,11 +63,22 @@ html, body {
 }
 
 .logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-family: var(--mono);
   font-size: 15px;
   font-weight: 600;
   letter-spacing: 0.08em;
   color: var(--text-muted);
+}
+
+.logo-img {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  object-fit: contain;
+  flex-shrink: 0;
 }
 
 .logo-bracket { color: var(--text-dim); }
