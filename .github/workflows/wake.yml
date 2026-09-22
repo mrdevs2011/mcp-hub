@@ -11,3 +11,16 @@ jobs:
     steps:
       - name: Ping mcp-hub
         run: curl -f https://mcp-hub-cdnq.onrender.com/api/health || echo "Server javob bermadi"
+
+      - name: GitHub uxlatmasligi uchun
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Keep workflow alive
+        run: |
+          git config user.email "actions@github.com"
+          git config user.name "GitHub Actions"
+          echo $(date +%s) > .github/keep-alive
+          git add .github/keep-alive
+          git diff --staged --quiet || git commit -m "chore: keep alive $(date -u +%Y-%m-%d)" && git push
