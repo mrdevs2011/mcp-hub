@@ -1,5 +1,4 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { createHash } from "node:crypto";
 import path from "node:path";
 import { token } from "./ids.mjs";
 
@@ -8,12 +7,8 @@ const UPSTASH_URL = process.env.UPSTASH_REDIS_REST_URL || "";
 const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || "";
 const KEY = process.env.HUB_STORE_KEY || "mcp-hub:store";
 
-function hashPassword(password) {
-  return createHash("sha256").update(password + "mcp-hub-salt").digest("hex");
-}
-
 function emptyStore() {
-  return { accounts: {}, usernames: {} };
+  return { accounts: {} };
 }
 
 async function redis(command) {
@@ -25,7 +20,9 @@ async function redis(command) {
     },
     body: JSON.stringify(command),
   });
-  if (!res.ok) throw new Error(`Upstash xato: ${res.status}`);
+  if (!res.ok) {
+    throw new Error(`Upstash xato: ${res.status}`);
+  }
   const json = await res.json();
   return json.result;
 }
@@ -38,10 +35,7 @@ async function readStore() {
   }
   try {
     const raw = await readFile(FILE, "utf8");
-    const store = JSON.parse(raw);
-    // Eski formatni qo'llab-quvvatlash
-    if (!store.usernames) store.usernames = {};
-    return store;
+    return JSON.parse(raw);
   } catch {
     return emptyStore();
   }
@@ -61,75 +55,20 @@ export function storageMode() {
   return "file";
 }
 
-export async function createAccount({ username, password }) {
-  if (!username || !password) {
-    const err = new Error("Username va parol kerak");
-    err.status = 400;
-    throw err;
-  }
-  if (!/^[a-zA-Z0-9_]{3,32}$/.test(username)) {
-    const err = new Error("Username: 3-32 belgi, faqat harf/raqam/pastki chiziq");
-    err.status = 400;
-    throw err;
-  }
-  if (password.length < 6) {
-    const err = new Error("Parol kamida 6 belgi bo'lsin");
-    err.status = 400;
-    throw err;
-  }
-
+export async function createAccount() {
   const store = await readStore();
-  if (!store.usernames) store.usernames = {};
-
-  if (store.usernames[username.toLowerCase()]) {
-    const err = new Error("Bu username band");
-    err.status = 409;
-    throw err;
-  }
-
   const accountId = token(8);
+  const adminKey = token(24);
   const mcpKey = token(24);
-  const passwordHash = hashPassword(password);
-
   store.accounts[accountId] = {
     accountId,
-    username,
-    passwordHash,
+    adminKey,
     mcpKey,
     createdAt: new Date().toISOString(),
     connectors: [],
   };
-  store.usernames[username.toLowerCase()] = accountId;
-
   await writeStore(store);
   return store.accounts[accountId];
-}
-
-export async function loginAccount({ username, password }) {
-  if (!username || !password) {
-    const err = new Error("Username va parol kerak");
-    err.status = 400;
-    throw err;
-  }
-
-  const store = await readStore();
-  if (!store.usernames) store.usernames = {};
-
-  const accountId = store.usernames[username.toLowerCase()];
-  if (!accountId) {
-    const err = new Error("Username yoki parol noto'g'ri");
-    err.status = 401;
-    throw err;
-  }
-
-  const account = store.accounts[accountId];
-  if (!account || account.passwordHash !== hashPassword(password)) {
-    const err = new Error("Username yoki parol noto'g'ri");
-    err.status = 401;
-    throw err;
-  }
-
-  return account;
 }
 
 export async function getAccount(accountId) {
@@ -137,16 +76,10 @@ export async function getAccount(accountId) {
   return store.accounts[accountId] || null;
 }
 
-export async function requireAdmin(accountId, password) {
-  const store = await readStore();
-  const account = store.accounts[accountId];
-  if (!account) {
-    const err = new Error("Hisob topilmadi");
-    err.status = 401;
-    throw err;
-  }
-  if (account.passwordHash !== hashPassword(password)) {
-    const err = new Error("Parol noto'g'ri");
+export async function requireAdmin(accountId, adminKey) {
+  const account = await getAccount(accountId);
+  if (!account || account.adminKey !== adminKey) {
+    const err = new Error("Hisob topilmadi yoki kalit noto‘g‘ri");
     err.status = 401;
     throw err;
   }
@@ -156,7 +89,7 @@ export async function requireAdmin(accountId, password) {
 export async function requireMcp(accountId, mcpKey) {
   const account = await getAccount(accountId);
   if (!account || account.mcpKey !== mcpKey) {
-    const err = new Error("MCP kaliti noto'g'ri");
+    const err = new Error("MCP kaliti noto‘g‘ri");
     err.status = 401;
     throw err;
   }
@@ -170,11 +103,25 @@ export async function saveAccount(account) {
   return account;
 }
 
+export async function importAccount(payload) {
+  if (!payload?.accountId || !payload?.adminKey || !payload?.mcpKey) {
+    throw new Error("Import faylida accountId, adminKey, mcpKey kerak");
+  }
+  const store = await readStore();
+  store.accounts[payload.accountId] = {
+    accountId: payload.accountId,
+    adminKey: payload.adminKey,
+    mcpKey: payload.mcpKey,
+    createdAt: payload.createdAt || new Date().toISOString(),
+    connectors: Array.isArray(payload.connectors) ? payload.connectors : [],
+  };
+  await writeStore(store);
+  return store.accounts[payload.accountId];
+}
+
 export function publicAccount(account) {
   return {
     accountId: account.accountId,
-    username: account.username,
-    mcpKey: account.mcpKey,
     createdAt: account.createdAt,
     connectors: account.connectors,
     storage: storageMode(),

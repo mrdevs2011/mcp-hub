@@ -2,9 +2,8 @@ const $ = (id) => document.getElementById(id);
 
 const state = {
   accountId: localStorage.getItem("hub_accountId") || "",
-  password: localStorage.getItem("hub_password") || "",
+  adminKey: localStorage.getItem("hub_adminKey") || "",
   mcpKey: localStorage.getItem("hub_mcpKey") || "",
-  username: localStorage.getItem("hub_username") || "",
   account: null,
 };
 
@@ -14,18 +13,10 @@ function toast(text, type = "") {
   el.textContent = text;
 }
 
-function saveSession() {
+function saveKeys() {
   localStorage.setItem("hub_accountId", state.accountId);
-  localStorage.setItem("hub_password", state.password);
+  localStorage.setItem("hub_adminKey", state.adminKey);
   localStorage.setItem("hub_mcpKey", state.mcpKey);
-  localStorage.setItem("hub_username", state.username);
-}
-
-function clearSession() {
-  localStorage.removeItem("hub_accountId");
-  localStorage.removeItem("hub_password");
-  localStorage.removeItem("hub_mcpKey");
-  localStorage.removeItem("hub_username");
 }
 
 function mcpUrl() {
@@ -35,6 +26,7 @@ function mcpUrl() {
 
 async function api(path, options = {}) {
   const headers = { ...(options.headers || {}) };
+  if (state.adminKey) headers.Authorization = `Bearer ${state.adminKey}`;
   if (options.body && !(options.body instanceof FormData)) {
     headers["Content-Type"] = "application/json";
   }
@@ -42,16 +34,6 @@ async function api(path, options = {}) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `Xato ${res.status}`);
   return data;
-}
-
-// Har bir so'rovga parolni qo'shish (body orqali)
-async function authApi(path, options = {}) {
-  let body = {};
-  if (options.body) {
-    try { body = JSON.parse(options.body); } catch {}
-  }
-  body._password = state.password;
-  return api(path, { ...options, body: JSON.stringify(body) });
 }
 
 function renderAuth() {
@@ -62,51 +44,46 @@ function renderAuth() {
     <div class="grid">
       <div>
         <h3 style="margin-top:0">Yangi hisob</h3>
-        <p class="hint">Username va parol tanlang.</p>
-        <label>Username</label>
-        <input id="reg-user" placeholder="ali123" autocomplete="username" />
-        <label>Parol</label>
-        <input id="reg-pass" type="password" placeholder="••••••" autocomplete="new-password" />
-        <button id="create" style="margin-top:12px">Ro'yxatdan o'tish</button>
+        <p class="hint">Bir marta ochiladi. Kalitlarni saqlab qo‘ying.</p>
+        <button id="create">Hisob ochish</button>
       </div>
       <div>
-        <h3 style="margin-top:0">Kirish</h3>
-        <label>Username</label>
-        <input id="login-user" value="${state.username}" autocomplete="username" />
-        <label>Parol</label>
-        <input id="login-pass" type="password" value="${state.password}" autocomplete="current-password" />
-        <button class="secondary" id="login" style="margin-top:12px">Kirish</button>
+        <h3 style="margin-top:0">Mavjud hisob</h3>
+        <label>Account ID</label>
+        <input id="login-id" value="${state.accountId}" />
+        <label>Admin kalit</label>
+        <input id="login-key" value="${state.adminKey}" />
+        <div class="row" style="margin-top:12px">
+          <button class="secondary" id="login">Kirish</button>
+          <button class="ghost" id="import-btn">Import</button>
+        </div>
+        <input id="import-file" type="file" accept="application/json" hidden />
       </div>
     </div>
   `;
-  $("create").onclick = registerAccount;
-  $("login").onclick = doLogin;
-
-  // Enter bosilsa kirish
-  ["login-user", "login-pass"].forEach(id => {
-    $(id).addEventListener("keydown", e => { if (e.key === "Enter") doLogin(); });
-  });
-  ["reg-user", "reg-pass"].forEach(id => {
-    $(id).addEventListener("keydown", e => { if (e.key === "Enter") registerAccount(); });
-  });
+  $("create").onclick = createAccount;
+  $("login").onclick = () => {
+    state.accountId = $("login-id").value.trim();
+    state.adminKey = $("login-key").value.trim();
+    saveKeys();
+    loadAccount();
+  };
+  $("import-btn").onclick = () => $("import-file").click();
+  $("import-file").onchange = importFile;
 }
 
 function renderDash() {
   $("auth").hidden = true;
   $("dashboard").hidden = false;
   $("top-actions").innerHTML = `
-    <span class="hint" style="margin-right:auto">@${state.username}</span>
     <button class="ghost" id="reload">Yangilash</button>
+    <button class="secondary" id="export">Eksport</button>
     <button class="secondary" id="logout">Chiqish</button>
   `;
   $("reload").onclick = loadAccount;
+  $("export").onclick = exportAccount;
   $("logout").onclick = () => {
     state.account = null;
-    state.password = "";
-    state.accountId = "";
-    state.username = "";
-    state.mcpKey = "";
-    clearSession();
     renderAuth();
   };
 
@@ -120,9 +97,10 @@ function renderDash() {
         <button id="copy">Nusxa</button>
       </div>
       <div class="keys">
+        <div>Account ID: ${state.accountId}</div>
         <div>Storage: ${state.account.storage}</div>
       </div>
-      <p class="hint">Bu manzil o'zgarmaydi. Pastdan yangi MCP qo'shasiz.</p>
+      <p class="hint">Bu manzil o‘zgarmaydi. Pastdan yangi MCP qo‘shasiz.</p>
     </section>
 
     <section class="card">
@@ -150,7 +128,7 @@ function renderDash() {
         </div>
       </div>
       <div class="row" style="margin-top:14px">
-        <button class="ok" id="add">Qo'shish</button>
+        <button class="ok" id="add">Qo‘shish</button>
       </div>
     </section>
 
@@ -168,7 +146,7 @@ function renderDash() {
 
   const list = $("list");
   if (!connectors.length) {
-    list.innerHTML = `<p class="empty">Hali connector yo'q. Avval HTTP MCP URL qo'shing.</p>`;
+    list.innerHTML = `<p class="empty">Hali connector yo‘q. Avval HTTP MCP URL qo‘shing.</p>`;
     return;
   }
   list.innerHTML = connectors
@@ -177,14 +155,14 @@ function renderDash() {
       <article class="item" data-id="${c.id}">
         <div class="row">
           <h3>${escapeHtml(c.name)}</h3>
-          <span class="badge ${c.enabled === false ? "off" : "on"}">${c.enabled === false ? "o'chiq" : "yoqilgan"}</span>
+          <span class="badge ${c.enabled === false ? "off" : "on"}">${c.enabled === false ? "o‘chiq" : "yoqilgan"}</span>
           <code>${escapeHtml(c.prefix)}__</code>
         </div>
         <p class="hint" style="word-break:break-all">${escapeHtml(c.url)}</p>
         <div class="row">
           <button class="ghost" data-act="test">Sinash</button>
-          <button class="secondary" data-act="toggle">${c.enabled === false ? "Yoqish" : "O'chirish"}</button>
-          <button class="danger" data-act="del">O'chirish</button>
+          <button class="secondary" data-act="toggle">${c.enabled === false ? "Yoqish" : "O‘chirish"}</button>
+          <button class="danger" data-act="del">O‘chirish</button>
         </div>
         <div class="hint result"></div>
       </article>`
@@ -200,25 +178,21 @@ function renderDash() {
       const box = el.querySelector(".result");
       if (act === "test") {
         box.textContent = "Tekshirilmoqda...";
-        try {
-          const res = await authApi(`/api/account/${state.accountId}/connectors/${id}/test`, { method: "POST", body: "{}" });
-          box.textContent = res.ok
-            ? `OK · ${res.count} tool: ${(res.tools || []).slice(0, 8).join(", ")}`
-            : `Xato: ${res.error}`;
-        } catch (err) {
-          box.textContent = `Xato: ${err.message}`;
-        }
+        const res = await api(`/api/account/${state.accountId}/connectors/${id}/test`, { method: "POST" });
+        box.textContent = res.ok
+          ? `OK · ${res.count} tool: ${(res.tools || []).slice(0, 8).join(", ")}`
+          : `Xato: ${res.error}`;
       }
       if (act === "toggle") {
-        await authApi(`/api/account/${state.accountId}/connectors/${id}`, {
+        await api(`/api/account/${state.accountId}/connectors/${id}`, {
           method: "PUT",
           body: JSON.stringify({ ...connector, enabled: connector.enabled === false }),
         });
         await loadAccount();
       }
       if (act === "del") {
-        if (!confirm("O'chirilsinmi?")) return;
-        await authApi(`/api/account/${state.accountId}/connectors/${id}`, { method: "DELETE", body: "{}" });
+        if (!confirm("O‘chirilsinmi?")) return;
+        await api(`/api/account/${state.accountId}/connectors/${id}`, { method: "DELETE" });
         await loadAccount();
       }
     };
@@ -233,74 +207,40 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
-async function registerAccount() {
-  const username = $("reg-user").value.trim();
-  const password = $("reg-pass").value;
-  if (!username || !password) {
-    toast("Username va parol kiriting", "err");
-    return;
-  }
+async function createAccount() {
   try {
-    const data = await api("/api/register", {
-      method: "POST",
-      body: JSON.stringify({ username, password }),
-    });
+    const data = await api("/api/account", { method: "POST" });
     state.accountId = data.accountId;
-    state.password = password;
+    state.adminKey = data.adminKey;
     state.mcpKey = data.mcpKey;
-    state.username = data.username;
-    saveSession();
-    toast("Hisob ochildi!", "ok");
+    saveKeys();
+    toast("Hisob ochildi. Kalitlar brauzerda saqlanadi.", "ok");
     await loadAccount();
   } catch (err) {
     toast(err.message, "err");
   }
 }
 
-async function doLogin() {
-  const username = $("login-user").value.trim();
-  const password = $("login-pass").value;
-  if (!username || !password) {
-    toast("Username va parol kiriting", "err");
-    return;
-  }
-  try {
-    const data = await api("/api/login", {
-      method: "POST",
-      body: JSON.stringify({ username, password }),
-    });
-    state.accountId = data.accountId;
-    state.password = password;
-    state.mcpKey = data.mcpKey;
-    state.username = data.username;
-    saveSession();
-    state.account = data;
-    renderDash();
-  } catch (err) {
-    toast(err.message, "err");
-  }
-}
-
 async function loadAccount() {
-  if (!state.accountId || !state.password) {
+  if (!state.accountId || !state.adminKey) {
     renderAuth();
     return;
   }
   try {
-    const account = await authApi(`/api/account/${state.accountId}`, { method: "GET", body: "{}" });
+    const account = await api(`/api/account/${state.accountId}`);
     state.account = account;
     state.mcpKey = account.mcpKey;
-    state.username = account.username;
-    saveSession();
+    saveKeys();
     renderDash();
-  } catch {
+  } catch (err) {
+    toast(err.message, "err");
     renderAuth();
   }
 }
 
 async function addConnector() {
   try {
-    await authApi(`/api/account/${state.accountId}/connectors`, {
+    await api(`/api/account/${state.accountId}/connectors`, {
       method: "POST",
       body: JSON.stringify({
         name: $("c-name").value,
@@ -315,7 +255,33 @@ async function addConnector() {
     $("c-url").value = "";
     $("c-h").value = "";
     $("c-v").value = "";
-    toast("Connector qo'shildi", "ok");
+    toast("Connector qo‘shildi", "ok");
+    await loadAccount();
+  } catch (err) {
+    toast(err.message, "err");
+  }
+}
+
+async function exportAccount() {
+  const data = await api(`/api/account/${state.accountId}/export`);
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `mcp-hub-${state.accountId}.json`;
+  a.click();
+}
+
+async function importFile(ev) {
+  const file = ev.target.files?.[0];
+  if (!file) return;
+  try {
+    const payload = JSON.parse(await file.text());
+    await api("/api/account/import", { method: "POST", body: JSON.stringify(payload) });
+    state.accountId = payload.accountId;
+    state.adminKey = payload.adminKey;
+    state.mcpKey = payload.mcpKey;
+    saveKeys();
+    toast("Import qilindi", "ok");
     await loadAccount();
   } catch (err) {
     toast(err.message, "err");

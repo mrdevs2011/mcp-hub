@@ -4,7 +4,7 @@ import path from "node:path";
 import { token, slugify } from "./lib/ids.mjs";
 import {
   createAccount,
-  loginAccount,
+  importAccount,
   publicAccount,
   requireAdmin,
   requireMcp,
@@ -50,8 +50,8 @@ function bearer(req) {
   return String(req.headers.authorization || "").replace(/^Bearer\s+/i, "").trim();
 }
 
-function passwordFrom(req) {
-  return query(req).get("p") || query(req).get("pass") || bearer(req);
+function keyFrom(req) {
+  return query(req).get("k") || query(req).get("key") || bearer(req);
 }
 
 async function readBody(req) {
@@ -189,45 +189,42 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { ok: true, name: "mcp-hub", storage: storageMode() });
     }
 
-    // Ro'yxatdan o'tish
-    if (req.method === "POST" && p === "/api/register") {
-      const body = await readBody(req);
-      const account = await createAccount({ username: body.username, password: body.password });
+    if (req.method === "POST" && p === "/api/account") {
+      const account = await createAccount();
       return send(res, 200, {
         accountId: account.accountId,
-        username: account.username,
+        adminKey: account.adminKey,
         mcpKey: account.mcpKey,
         storage: storageMode(),
       });
     }
 
-    // Kirish
-    if (req.method === "POST" && p === "/api/login") {
+    if (req.method === "POST" && p === "/api/account/import") {
       const body = await readBody(req);
-      const account = await loginAccount({ username: body.username, password: body.password });
+      const account = await importAccount(body);
+      return send(res, 200, publicAccount(account));
+    }
+
+    let m = match(p, "/api/account/:accountId");
+    if (m && req.method === "GET") {
+      const account = await requireAdmin(m.accountId, keyFrom(req));
       return send(res, 200, {
         ...publicAccount(account),
+        adminKey: account.adminKey,
         mcpKey: account.mcpKey,
       });
     }
 
-    // Hisob ma'lumotlari (parol bilan)
-    let m = match(p, "/api/account/:accountId");
-    if (m && (req.method === "GET" || req.method === "POST")) {
-      const body = await readBody(req);
-      const pass = passwordFrom(req) || body?.password;
-      const account = await requireAdmin(m.accountId, pass);
-      return send(res, 200, publicAccount(account));
+    m = match(p, "/api/account/:accountId/export");
+    if (m && req.method === "GET") {
+      const account = await requireAdmin(m.accountId, keyFrom(req));
+      return send(res, 200, account);
     }
 
-    // Connector qo'shish
     m = match(p, "/api/account/:accountId/connectors");
     if (m && req.method === "POST") {
-      const body = await readBody(req);
-      const pass = passwordFrom(req) || body?.password;
-      const account = await requireAdmin(m.accountId, pass);
-      const { _password: _p1, password: _p2, ...connBody } = body;
-      const connector = normalizeConnector(connBody);
+      const account = await requireAdmin(m.accountId, keyFrom(req));
+      const connector = normalizeConnector(await readBody(req));
       if (account.connectors.some((x) => x.prefix === connector.prefix)) {
         connector.prefix = `${connector.prefix}_${token(2)}`;
       }
@@ -236,36 +233,27 @@ const server = http.createServer(async (req, res) => {
       return send(res, 201, connector);
     }
 
-    // Connector tahrirlash / o'chirish
     m = match(p, "/api/account/:accountId/connectors/:id");
     if (m && req.method === "PUT") {
-      const body = await readBody(req);
-      const pass = passwordFrom(req) || body?.password;
-      const account = await requireAdmin(m.accountId, pass);
+      const account = await requireAdmin(m.accountId, keyFrom(req));
       const current = account.connectors.find((x) => x.id === m.id);
       if (!current) return send(res, 404, { error: "Connector topilmadi" });
-      const { _password: _p3, password: _p4, ...putBody } = body;
-      const next = normalizeConnector(putBody, current);
+      const next = normalizeConnector(await readBody(req), current);
       account.connectors = account.connectors.map((x) => (x.id === current.id ? next : x));
       await saveAccount(account);
       return send(res, 200, next);
     }
 
     if (m && req.method === "DELETE") {
-      const body = await readBody(req);
-      const pass = passwordFrom(req) || body?.password;
-      const account = await requireAdmin(m.accountId, pass);
+      const account = await requireAdmin(m.accountId, keyFrom(req));
       account.connectors = account.connectors.filter((x) => x.id !== m.id);
       await saveAccount(account);
       return send(res, 200, { ok: true });
     }
 
-    // Connector sinash
     m = match(p, "/api/account/:accountId/connectors/:id/test");
     if (m && req.method === "POST") {
-      const body = await readBody(req);
-      const pass = passwordFrom(req) || body?.password;
-      const account = await requireAdmin(m.accountId, pass);
+      const account = await requireAdmin(m.accountId, keyFrom(req));
       const connector = account.connectors.find((x) => x.id === m.id);
       if (!connector) return send(res, 404, { error: "Connector topilmadi" });
       try {
@@ -281,10 +269,9 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
-    // MCP endpoint
     m = match(p, "/mcp/:accountId") || match(p, "/api/mcp/:accountId");
     if (m) {
-      const account = await requireMcp(m.accountId, query(req).get("k") || bearer(req));
+      const account = await requireMcp(m.accountId, keyFrom(req));
       return handleMcp(req, res, account);
     }
 
