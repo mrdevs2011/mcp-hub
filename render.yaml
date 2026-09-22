@@ -1,0 +1,8 @@
+services:
+  - type: web
+    name: mcp-hub
+    runtime: node
+    plan: free
+    buildCommand: "echo no-build"
+    startCommand: node server.mjs
+    healthCheckPath: /api/health
