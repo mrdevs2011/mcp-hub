@@ -8,10 +8,13 @@ const state = {
   account: null,
 };
 
+let toastTimer;
 function toast(text, type = "") {
   const el = $("toast");
-  el.className = `toast ${type}`;
   el.textContent = text;
+  el.className = "toast-wrap show" + (type ? " " + type : "");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.className = "toast-wrap"; }, 3200);
 }
 
 function saveSession() {
@@ -22,10 +25,7 @@ function saveSession() {
 }
 
 function clearSession() {
-  localStorage.removeItem("hub_accountId");
-  localStorage.removeItem("hub_password");
-  localStorage.removeItem("hub_mcpKey");
-  localStorage.removeItem("hub_username");
+  ["hub_accountId","hub_password","hub_mcpKey","hub_username"].forEach(k => localStorage.removeItem(k));
 }
 
 function mcpUrl() {
@@ -44,49 +44,60 @@ async function api(path, options = {}) {
   return data;
 }
 
-// Har bir so'rovga parolni qo'shish (body orqali)
 async function authApi(path, options = {}) {
   let body = {};
-  if (options.body) {
-    try { body = JSON.parse(options.body); } catch {}
-  }
+  if (options.body) { try { body = JSON.parse(options.body); } catch {} }
   body._password = state.password;
   return api(path, { ...options, body: JSON.stringify(body) });
+}
+
+function renderTopActions() {
+  $("top-actions").innerHTML = `
+    <span class="user-badge">@${state.username}</span>
+    <button class="ghost" id="logout" style="padding:6px 14px;font-size:13px">Chiqish</button>
+  `;
+  $("logout").onclick = () => {
+    state.account = null; state.password = ""; state.accountId = "";
+    state.username = ""; state.mcpKey = "";
+    clearSession();
+    $("top-actions").innerHTML = "";
+    renderAuth();
+  };
 }
 
 function renderAuth() {
   $("auth").hidden = false;
   $("dashboard").hidden = true;
-  $("top-actions").innerHTML = "";
   $("auth").innerHTML = `
-    <div class="grid">
-      <div>
-        <h3 style="margin-top:0">Yangi hisob</h3>
-        <p class="hint">Username va parol tanlang.</p>
+    <div class="auth-grid">
+      <div class="card">
+        <div class="card-title">Yangi hisob</div>
         <label>Username</label>
-        <input id="reg-user" placeholder="ali123" autocomplete="username" />
+        <input id="reg-user" placeholder="ali_dev" autocomplete="username" />
         <label>Parol</label>
-        <input id="reg-pass" type="password" placeholder="••••••" autocomplete="new-password" />
-        <button id="create" style="margin-top:12px">Ro'yxatdan o'tish</button>
+        <input id="reg-pass" type="password" placeholder="••••••••" autocomplete="new-password" />
+        <div style="margin-top:20px">
+          <button class="primary" id="create" style="width:100%">Ro'yxatdan o'tish</button>
+        </div>
       </div>
-      <div>
-        <h3 style="margin-top:0">Kirish</h3>
+      <div class="card">
+        <div class="card-title">Kirish</div>
         <label>Username</label>
         <input id="login-user" value="${state.username}" autocomplete="username" />
         <label>Parol</label>
         <input id="login-pass" type="password" value="${state.password}" autocomplete="current-password" />
-        <button class="secondary" id="login" style="margin-top:12px">Kirish</button>
+        <div style="margin-top:20px">
+          <button class="ok" id="login" style="width:100%">Kirish →</button>
+        </div>
       </div>
     </div>
   `;
   $("create").onclick = registerAccount;
   $("login").onclick = doLogin;
-
-  // Enter bosilsa kirish
-  ["login-user", "login-pass"].forEach(id => {
+  ["login-user","login-pass"].forEach(id => {
     $(id).addEventListener("keydown", e => { if (e.key === "Enter") doLogin(); });
   });
-  ["reg-user", "reg-pass"].forEach(id => {
+  ["reg-user","reg-pass"].forEach(id => {
     $(id).addEventListener("keydown", e => { if (e.key === "Enter") registerAccount(); });
   });
 }
@@ -94,40 +105,28 @@ function renderAuth() {
 function renderDash() {
   $("auth").hidden = true;
   $("dashboard").hidden = false;
-  $("top-actions").innerHTML = `
-    <span class="hint" style="margin-right:auto">@${state.username}</span>
-    <button class="ghost" id="reload">Yangilash</button>
-    <button class="secondary" id="logout">Chiqish</button>
-  `;
-  $("reload").onclick = loadAccount;
-  $("logout").onclick = () => {
-    state.account = null;
-    state.password = "";
-    state.accountId = "";
-    state.username = "";
-    state.mcpKey = "";
-    clearSession();
-    renderAuth();
-  };
+  renderTopActions();
 
   const url = mcpUrl();
   const connectors = state.account.connectors || [];
-  $("dashboard").innerHTML = `
-    <section class="card">
-      <div class="kicker">Claude ga shu URL</div>
-      <div class="urlbox" style="margin-top:10px">
-        <input id="mcp-url" readonly value="${url}" />
-        <button id="copy">Nusxa</button>
-      </div>
-      <div class="keys">
-        <div>Storage: ${state.account.storage}</div>
-      </div>
-      <p class="hint">Bu manzil o'zgarmaydi. Pastdan yangi MCP qo'shasiz.</p>
-    </section>
 
-    <section class="card">
-      <h3 style="margin-top:0">Yangi connector</h3>
-      <div class="grid">
+  $("dashboard").innerHTML = `
+    <div class="card">
+      <div class="card-title">Claude MCP URL</div>
+      <div class="urlbox">
+        <input id="mcp-url" readonly value="${url}" />
+        <button id="copy-url">Nusxa</button>
+      </div>
+      <div class="meta-row">
+        <span class="meta-item">storage: <span class="val">${state.account.storage}</span></span>
+        <span class="meta-item">connectors: <span class="val">${connectors.length}</span></span>
+      </div>
+      <p class="hint">Bu URL o'zgarmaydi — Claude ga bir marta qo'shasiz.</p>
+    </div>
+
+    <div class="card section-gap">
+      <div class="card-title">Connector qo'shish</div>
+      <div class="grid-2">
         <div>
           <label>Nomi</label>
           <input id="c-name" placeholder="LifeMR" />
@@ -139,9 +138,9 @@ function renderDash() {
       </div>
       <label>MCP URL</label>
       <input id="c-url" placeholder="https://example.com/api/mcp" />
-      <div class="grid">
+      <div class="grid-2" style="margin-top:0">
         <div>
-          <label>Header nomi (ixtiyoriy)</label>
+          <label>Auth header (ixtiyoriy)</label>
           <input id="c-h" placeholder="Authorization" />
         </div>
         <div>
@@ -149,102 +148,98 @@ function renderDash() {
           <input id="c-v" placeholder="Bearer ..." />
         </div>
       </div>
-      <div class="row" style="margin-top:14px">
-        <button class="ok" id="add">Qo'shish</button>
+      <div style="margin-top:18px">
+        <button class="ok" id="add-btn">+ Qo'shish</button>
       </div>
-    </section>
+    </div>
 
-    <section class="card">
-      <h3 style="margin-top:0">Connectorlar (${connectors.length})</h3>
-      <div class="list" id="list"></div>
-    </section>
+    <div class="card section-gap">
+      <div class="card-title">Connectorlar</div>
+      <div class="connector-list" id="conn-list">
+        ${connectors.length === 0
+          ? `<div class="empty-state">// hali connector yo'q</div>`
+          : connectors.map(c => connectorHtml(c)).join("")}
+      </div>
+    </div>
   `;
 
-  $("copy").onclick = async () => {
+  $("copy-url").onclick = async () => {
     await navigator.clipboard.writeText(url);
     toast("URL nusxalandi", "ok");
   };
-  $("add").onclick = addConnector;
+  $("add-btn").onclick = addConnector;
 
-  const list = $("list");
-  if (!connectors.length) {
-    list.innerHTML = `<p class="empty">Hali connector yo'q. Avval HTTP MCP URL qo'shing.</p>`;
-    return;
-  }
-  list.innerHTML = connectors
-    .map(
-      (c) => `
-      <article class="item" data-id="${c.id}">
-        <div class="row">
-          <h3>${escapeHtml(c.name)}</h3>
-          <span class="badge ${c.enabled === false ? "off" : "on"}">${c.enabled === false ? "o'chiq" : "yoqilgan"}</span>
-          <code>${escapeHtml(c.prefix)}__</code>
-        </div>
-        <p class="hint" style="word-break:break-all">${escapeHtml(c.url)}</p>
-        <div class="row">
-          <button class="ghost" data-act="test">Sinash</button>
-          <button class="secondary" data-act="toggle">${c.enabled === false ? "Yoqish" : "O'chirish"}</button>
-          <button class="danger" data-act="del">O'chirish</button>
-        </div>
-        <div class="hint result"></div>
-      </article>`
-    )
-    .join("");
-
-  list.querySelectorAll(".item").forEach((el) => {
+  document.querySelectorAll(".connector-item").forEach(el => {
     const id = el.dataset.id;
-    const connector = connectors.find((x) => x.id === id);
-    el.onclick = async (ev) => {
-      const act = ev.target.dataset.act;
-      if (!act) return;
-      const box = el.querySelector(".result");
-      if (act === "test") {
-        box.textContent = "Tekshirilmoqda...";
-        try {
-          const res = await authApi(`/api/account/${state.accountId}/connectors/${id}/test`, { method: "POST", body: "{}" });
-          box.textContent = res.ok
-            ? `OK · ${res.count} tool: ${(res.tools || []).slice(0, 8).join(", ")}`
-            : `Xato: ${res.error}`;
-        } catch (err) {
-          box.textContent = `Xato: ${err.message}`;
-        }
-      }
-      if (act === "toggle") {
-        await authApi(`/api/account/${state.accountId}/connectors/${id}`, {
-          method: "PUT",
-          body: JSON.stringify({ ...connector, enabled: connector.enabled === false }),
-        });
-        await loadAccount();
-      }
-      if (act === "del") {
-        if (!confirm("O'chirilsinmi?")) return;
-        await authApi(`/api/account/${state.accountId}/connectors/${id}`, { method: "DELETE", body: "{}" });
-        await loadAccount();
-      }
-    };
+    const connector = connectors.find(x => x.id === id);
+    el.querySelector("[data-act=test]").onclick = () => testConnector(el, id);
+    el.querySelector("[data-act=toggle]").onclick = () => toggleConnector(connector);
+    el.querySelector("[data-act=del]").onclick = () => deleteConnector(id);
   });
 }
 
-function escapeHtml(value) {
-  return String(value || "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
+function connectorHtml(c) {
+  return `
+    <div class="connector-item" data-id="${c.id}">
+      <div class="connector-header">
+        <span class="connector-name">${escapeHtml(c.name)}</span>
+        <span class="badge ${c.enabled === false ? 'off' : 'on'}">${c.enabled === false ? 'off' : 'on'}</span>
+        <span class="prefix-tag">${escapeHtml(c.prefix)}__</span>
+      </div>
+      <div class="connector-url">${escapeHtml(c.url)}</div>
+      <div class="connector-actions">
+        <button class="ghost" data-act="test" style="font-size:12px;padding:6px 12px">Test</button>
+        <button class="secondary" data-act="toggle" style="font-size:12px;padding:6px 12px">${c.enabled === false ? 'Yoqish' : "O'chirish"}</button>
+        <button class="danger" data-act="del" style="font-size:12px;padding:6px 12px">O'chirish</button>
+      </div>
+      <div class="connector-result" id="res-${c.id}"></div>
+    </div>`;
+}
+
+function escapeHtml(v) {
+  return String(v || "")
+    .replaceAll("&","&amp;").replaceAll("<","&lt;")
+    .replaceAll(">","&gt;").replaceAll('"',"&quot;");
+}
+
+async function testConnector(el, id) {
+  const res = $(`res-${id}`);
+  res.className = "connector-result visible";
+  res.textContent = "// tekshirilmoqda...";
+  try {
+    const data = await authApi(`/api/account/${state.accountId}/connectors/${id}/test`, { method: "POST", body: "{}" });
+    res.className = "connector-result visible";
+    res.textContent = data.ok
+      ? `// OK · ${data.count} tool: ${(data.tools||[]).slice(0,6).join(", ")}`
+      : `// xato: ${data.error}`;
+    if (!data.ok) res.classList.add("err");
+  } catch(err) {
+    res.className = "connector-result visible err";
+    res.textContent = `// ${err.message}`;
+  }
+}
+
+async function toggleConnector(connector) {
+  await authApi(`/api/account/${state.accountId}/connectors/${connector.id}`, {
+    method: "PUT",
+    body: JSON.stringify({ ...connector, enabled: connector.enabled === false }),
+  });
+  await loadAccount();
+}
+
+async function deleteConnector(id) {
+  if (!confirm("O'chirilsinmi?")) return;
+  await authApi(`/api/account/${state.accountId}/connectors/${id}`, { method: "DELETE", body: "{}" });
+  toast("Connector o'chirildi", "ok");
+  await loadAccount();
 }
 
 async function registerAccount() {
   const username = $("reg-user").value.trim();
   const password = $("reg-pass").value;
-  if (!username || !password) {
-    toast("Username va parol kiriting", "err");
-    return;
-  }
+  if (!username || !password) { toast("Username va parol kiriting", "err"); return; }
   try {
-    const data = await api("/api/register", {
-      method: "POST",
-      body: JSON.stringify({ username, password }),
-    });
+    const data = await api("/api/register", { method: "POST", body: JSON.stringify({ username, password }) });
     state.accountId = data.accountId;
     state.password = password;
     state.mcpKey = data.mcpKey;
@@ -252,23 +247,15 @@ async function registerAccount() {
     saveSession();
     toast("Hisob ochildi!", "ok");
     await loadAccount();
-  } catch (err) {
-    toast(err.message, "err");
-  }
+  } catch(err) { toast(err.message, "err"); }
 }
 
 async function doLogin() {
   const username = $("login-user").value.trim();
   const password = $("login-pass").value;
-  if (!username || !password) {
-    toast("Username va parol kiriting", "err");
-    return;
-  }
+  if (!username || !password) { toast("Username va parol kiriting", "err"); return; }
   try {
-    const data = await api("/api/login", {
-      method: "POST",
-      body: JSON.stringify({ username, password }),
-    });
+    const data = await api("/api/login", { method: "POST", body: JSON.stringify({ username, password }) });
     state.accountId = data.accountId;
     state.password = password;
     state.mcpKey = data.mcpKey;
@@ -276,50 +263,41 @@ async function doLogin() {
     saveSession();
     state.account = data;
     renderDash();
-  } catch (err) {
-    toast(err.message, "err");
-  }
+  } catch(err) { toast(err.message, "err"); }
 }
 
 async function loadAccount() {
-  if (!state.accountId || !state.password) {
-    renderAuth();
-    return;
-  }
+  if (!state.accountId || !state.password) { renderAuth(); return; }
   try {
-    const account = await authApi(`/api/account/${state.accountId}`, { method: "GET", body: "{}" });
+    const account = await authApi(`/api/account/${state.accountId}`, { method: "POST", body: "{}" });
     state.account = account;
     state.mcpKey = account.mcpKey;
     state.username = account.username;
     saveSession();
     renderDash();
-  } catch {
-    renderAuth();
-  }
+  } catch { renderAuth(); }
 }
 
 async function addConnector() {
+  const name = $("c-name").value.trim();
+  const url = $("c-url").value.trim();
+  if (!name || !url) { toast("Nom va URL kerak", "err"); return; }
   try {
     await authApi(`/api/account/${state.accountId}/connectors`, {
       method: "POST",
       body: JSON.stringify({
-        name: $("c-name").value,
-        prefix: $("c-prefix").value,
-        url: $("c-url").value,
-        authHeader: $("c-h").value,
-        authValue: $("c-v").value,
+        name,
+        prefix: $("c-prefix").value.trim(),
+        url,
+        authHeader: $("c-h").value.trim(),
+        authValue: $("c-v").value.trim(),
       }),
     });
-    $("c-name").value = "";
-    $("c-prefix").value = "";
-    $("c-url").value = "";
-    $("c-h").value = "";
-    $("c-v").value = "";
+    $("c-name").value = ""; $("c-prefix").value = "";
+    $("c-url").value = ""; $("c-h").value = ""; $("c-v").value = "";
     toast("Connector qo'shildi", "ok");
     await loadAccount();
-  } catch (err) {
-    toast(err.message, "err");
-  }
+  } catch(err) { toast(err.message, "err"); }
 }
 
 loadAccount();

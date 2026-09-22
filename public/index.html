@@ -4,24 +4,36 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>MCP Hub</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
+  <div class="grid-bg" aria-hidden="true"></div>
+  <div class="noise" aria-hidden="true"></div>
+
+  <header class="topbar">
+    <div class="logo">
+      <span class="logo-bracket">[</span>MCP<span class="logo-accent">HUB</span><span class="logo-bracket">]</span>
+    </div>
+    <div id="top-actions" class="top-actions"></div>
+  </header>
+
   <main class="wrap">
     <section class="hero">
-      <div class="kicker">MCP Hub</div>
-      <h1>Ko‘p MCP — bitta barqaror URL</h1>
-      <p class="lead">
-        Claude ga faqat shu bitta manzilni berasiz. Yangi connector qo‘shsangiz
-        ham Claude dagi URL o‘zgarmaydi.
-      </p>
-      <div class="row" id="top-actions"></div>
+      <div class="hero-tag">
+        <span class="dot"></span> v2.0 — live
+      </div>
+      <h1>Ko'p MCP.<br><span class="h1-accent">Bitta URL.</span></h1>
+      <p class="lead">Claude ga faqat bitta manzil. Yangi connector qo'shsangiz ham URL o'zgarmaydi.</p>
     </section>
 
-    <section id="auth" class="login"></section>
+    <section id="auth" class="auth-wrap"></section>
     <section id="dashboard" hidden></section>
-    <div id="toast"></div>
+    <div id="toast" class="toast-wrap"></div>
   </main>
+
   <script src="/app.js"></script>
 </body>
 </html>
