@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>MRdrive</title>
+
+<!-- Inline SVG favicon (same as the splash logo) -->
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='10' fill='%2318181b'/%3E%3Cpath d='M10 26V14L20 22L30 14V26' stroke='white' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3C/svg%3E">
+
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- AUTH SCREEN -->
+  <div id="auth-screen" class="screen" style="display:none;">
+    <div class="auth-box">
+      <div class="logo">
+        <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
+          <rect width="40" height="40" rx="10" fill="#18181b"/>
+          <path d="M10 26V14L20 22L30 14V26" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        </svg>
+      </div>
+      <h1>MRdrive</h1>
+
+      <div id="login-form">
+        <p class="form-title">Log in</p>
+        <input type="text" id="login-username" placeholder="Username" />
+        <input type="password" id="login-password" placeholder="Password" />
+        <button onclick="login()">Log in</button>
+        <p class="switch-link">Don't have an account? <a onclick="showSignup()">Sign up</a></p>
+      </div>
+
+      <div id="signup-form" style="display:none;">
+        <p class="form-title">Sign up</p>
+        <input type="text" id="signup-name" placeholder="Your name" />
+        <input type="text" id="signup-username" placeholder="Username" />
+        <input type="password" id="signup-password" placeholder="Password (min 6 characters)" />
+        <button onclick="signup()">Sign up</button>
+        <p class="switch-link">Already have an account? <a onclick="showLogin()">Log in</a></p>
+      </div>
+
+      <p id="auth-status"></p>
+    </div>
+  </div>
+
+  <!-- INITIAL LOADER -->
+  <div id="boot-loader">
+    <svg width="32" height="32" viewBox="0 0 40 40" fill="none">
+      <rect width="40" height="40" rx="10" fill="#18181b"/>
+      <path d="M10 26V14L20 22L30 14V26" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    </svg>
+  </div>
+
+  <!-- APP SCREEN -->
+  <div id="app" class="screen" style="display:none;">
+    <header>
+      <div class="brand">
+        <svg width="26" height="26" viewBox="0 0 40 40" fill="none">
+          <rect width="40" height="40" rx="10" fill="#18181b"/>
+          <path d="M10 26V14L20 22L30 14V26" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        </svg>
+        <h1>MRdrive</h1>
+      </div>
+      <div>
+        <span id="user-email"></span>
+        <button onclick="logout()">Log out</button>
+      </div>
+    </header>
+
+    <div id="dropzone" class="dropzone">
+      <svg width="36" height="36" viewBox="0 0 24 24" fill="none" class="dz-icon">
+        <path d="M12 16V4M12 4L7 9M12 4L17 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M4 16V18C4 19.1046 4.89543 20 6 20H18C19.1046 20 20 19.1046 20 18V16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <p>Drag and drop, press CTRL+V, or <label for="file-input" class="upload-label">choose a file</label></p>
+      <input type="file" id="file-input" multiple hidden />
+    </div>
+
+    <div id="upload-progress"></div>
+
+    <div id="file-list" class="file-list"></div>
+  </div>
+
+  <!-- ANNOTATION VIEWER -->
+  <div id="annot-viewer" class="annot-viewer" style="display:none;" aria-hidden="true">
+    <div class="annot-topbar">
+      <button class="annot-btn" id="annot-close" title="Yopish">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M6 6L18 18M6 18L18 6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+      <span class="annot-filename" id="annot-filename"></span>
+      <div class="annot-top-actions">
+        <button class="annot-btn" id="annot-undo" title="Ortga (Ctrl+Z)">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M9 14L4 9L9 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 9H14C17.3137 9 20 11.6863 20 15C20 18.3137 17.3137 21 14 21H12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        </button>
+        <button class="annot-btn" id="annot-redo" title="Oldinga (Ctrl+Y)">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M15 14L20 9L15 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M20 9H10C6.68629 9 4 11.6863 4 15C4 18.3137 6.68629 21 10 21H12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        </button>
+        <button class="annot-btn" id="annot-save" title="Annotated versiyani saqlash">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M19 21H5C3.89543 21 3 20.1046 3 19V5C3 3.89543 3.89543 3 5 3H16L21 8V19C21 20.1046 20.1046 21 19 21Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M17 21V13H7V21" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M7 3V8H15" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+        </button>
+        <button class="annot-btn" id="annot-fullscreen" title="To'liq ekran">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M4 9V4H9M15 4H20V9M20 15V20H15M9 20H4V15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="annot-toolbar" id="annot-toolbar"></div>
+
+    <div class="annot-workspace" id="annot-workspace">
+      <div class="annot-scroll" id="annot-scroll"></div>
+    </div>
+
+    <div class="annot-status" id="annot-status">
+      <span id="annot-tool-hint">1 barmoq = chizish · 2 barmoq = surish / zoom</span>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+  <script>
+    if (window.pdfjsLib) {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    }
+  </script>
+  <script src="/api/config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MRdrive MCP</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+  body {
+    background: #fafafa; color: #18181b;
+    min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    padding: 24px;
+  }
+  .card {
+    background: #fff; border: 1px solid #e4e4e7; border-radius: 16px;
+    padding: 32px; max-width: 480px; width: 100%;
+  }
+  h1 { font-size: 20px; margin-bottom: 6px; }
+  p.sub { color: #71717a; font-size: 14px; margin-bottom: 24px; }
+  .row { margin-bottom: 20px; }
+  label { display: block; font-size: 12px; color: #71717a; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.03em; }
+  .urlbox {
+    display: flex; align-items: center; gap: 8px;
+    background: #f4f4f5; border: 1px solid #e4e4e7; border-radius: 10px;
+    padding: 10px 12px;
+  }
+  .urlbox code { flex: 1; font-size: 13px; word-break: break-all; }
+  button {
+    border: none; background: #18181b; color: #fff; border-radius: 8px;
+    padding: 8px 14px; font-size: 13px; cursor: pointer; white-space: nowrap;
+  }
+  button:hover { opacity: 0.85; }
+  .status { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .dot.ok { background: #16a34a; }
+  .dot.bad { background: #dc2626; }
+  .muted { color: #71717a; font-size: 13px; margin-top: 4px; }
+  .steps { font-size: 13px; color: #3f3f46; line-height: 1.7; padding-left: 18px; margin-top: 20px; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>MRdrive MCP</h1>
+    <p class="sub">Claude uchun ulanish manzili — hozirgi deploy'dan avtomatik hisoblanadi.</p>
+
+    <div class="row">
+      <label>Holat</label>
+      <div id="status" class="status">
+        <span class="dot" id="statusDot"></span>
+        <span id="statusText">Tekshirilmoqda...</span>
+      </div>
+      <div class="muted" id="accountText"></div>
+    </div>
+
+    <div class="row">
+      <label>MCP URL (Claude'da connector sifatida shuni qo'shing)</label>
+      <div class="urlbox">
+        <code id="mcpUrl">yuklanmoqda...</code>
+        <button id="copyBtn">Nusxalash</button>
+      </div>
+    </div>
+
+    <ol class="steps">
+      <li>claude.ai → Settings → Connectors → "Add custom connector"</li>
+      <li>Yuqoridagi URL'ni joylashtiring va saqlang</li>
+      <li>Claude'ga "MRdrive'da nima bor?" deb sinab ko'ring</li>
+    </ol>
+  </div>
+
+  <script>
+    (async function () {
+      const urlEl = document.getElementById("mcpUrl");
+      const dotEl = document.getElementById("statusDot");
+      const statusEl = document.getElementById("statusText");
+      const accountEl = document.getElementById("accountText");
+      const copyBtn = document.getElementById("copyBtn");
+
+      // Zaxira: server javob bermasa ham, brauzer joriy manzilidan
+      // to'g'ri URL'ni o'zi hisoblab chiqaradi.
+      let mcpUrl = window.location.origin + "/api/mcp";
+      urlEl.textContent = mcpUrl;
+
+      try {
+        const res = await fetch("/api/mcp-info", { cache: "no-store" });
+        const data = await res.json();
+
+        if (data.mcpUrl) {
+          mcpUrl = data.mcpUrl;
+          urlEl.textContent = mcpUrl;
+        }
+
+        if (data.hasCredentials) {
+          dotEl.className = "dot ok";
+          statusEl.textContent = "Sozlangan va ishlashga tayyor";
+        } else {
+          dotEl.className = "dot bad";
+          statusEl.textContent = "Environment Variables to'liq emas";
+        }
+
+        accountEl.textContent = data.username
+          ? "Ulangan hisob: " + data.username
+          : "Hisob aniqlanmadi (MRDRIVE_USERNAME yo'q)";
+      } catch (e) {
+        dotEl.className = "dot bad";
+        statusEl.textContent = "Server javob bermadi";
+        accountEl.textContent = "";
+      }
+
+      copyBtn.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(mcpUrl);
+          copyBtn.textContent = "Nusxalandi!";
+          setTimeout(() => (copyBtn.textContent = "Nusxalash"), 1500);
+        } catch (e) {
+          copyBtn.textContent = "Xato";
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
