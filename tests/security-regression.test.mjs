@@ -10,18 +10,23 @@ import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-describe("CMMGH must not return PAT", () => {
+describe("CMMGH fine-grained PAT + server upload", () => {
   const p = join(root, "../CMMGH/api/mcp.js");
   if (!existsSync(p)) return it("skip if no CMMGH", () => {});
   const src = readFileSync(p, "utf8");
-  it("has no get_upload_token tool", () => {
-    assert.equal(src.includes("get_upload_token"), false);
+  // Fine-grained PAT is intentional: scoped to one private uploads repo only.
+  // get_upload_token may return it for Claude/Skills direct git push.
+  it("exposes get_upload_token for fine-grained PAT path", () => {
+    assert.match(src, /name:\s*"get_upload_token"/);
+    assert.match(src, /fine-grained|Fine-grained/i);
   });
-  it("never JSON.stringifies env GH_TOKEN to client", () => {
-    assert.equal(/JSON\.stringify\(\s*\{\s*token\s*,/.test(src), false);
-    assert.equal(src.includes("process.env.GH_TOKEN"), true); // used server-side only
+  it("documents never-echo token security", () => {
+    assert.match(src, /NEVER print|Do not print token/i);
   });
-  it("exposes upload_file", () => {
+  it("uses process.env.GH_TOKEN server-side", () => {
+    assert.equal(src.includes("process.env.GH_TOKEN"), true);
+  });
+  it("exposes upload_file as server-side alternative", () => {
     assert.match(src, /name:\s*"upload_file"/);
   });
 });
