@@ -38,7 +38,12 @@ export async function dispatchTool(account, hubName, args) {
   if (!connector) {
     throw new Error(`Connector topilmadi: ${prefix || hubName}. Tool nomi prefix__tool ko‘rinishida bo‘lishi kerak.`);
   }
-  return callBackendTool(connector, tool, args);
+  try {
+    return await callBackendTool(connector, tool, args);
+  } catch (err) {
+    const msg = String(err && err.message ? err.message : err).slice(0, 500);
+    throw new Error(`[${connector.name}] ${msg}`);
+  }
 }
 
 export function initializeResult() {
