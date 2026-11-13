@@ -560,3 +560,18 @@ button:active { transform: scale(0.97); }
   .grid-2 { grid-template-columns: 1fr; }
   h1 { font-size: 32px; }
 }
+
+/* ---------- Modal & tool editor ---------- */
+body.modal-open { overflow: hidden; }
+.modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.7); z-index: 100; display: flex; align-items: flex-start; justify-content: center; padding: 4vh 12px; overflow-y: auto; }
+.modal { width: 100%; max-width: 760px; background: var(--bg-card, #11141a); border: 1px solid var(--border, #2a2f3a); border-radius: 12px; padding: 18px; }
+.modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.modal-title { font-weight: 600; font-size: 16px; }
+.tool-list { display: flex; flex-direction: column; gap: 14px; }
+.tool-item { border: 1px solid var(--border, #2a2f3a); border-radius: 10px; padding: 14px; }
+.tool-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.tool-orig { font-family: "JetBrains Mono", monospace; font-weight: 600; }
+.modal textarea { width: 100%; box-sizing: border-box; background: inherit; color: inherit; border: 1px solid var(--border, #2a2f3a); border-radius: 8px; padding: 10px; font: inherit; resize: vertical; }
+.modal textarea.mono { font-family: "JetBrains Mono", monospace; font-size: 12px; }
+.check-row { display: flex; align-items: center; gap: 8px; margin: 10px 0 4px; }
+.check-row input { width: auto; }

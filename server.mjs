@@ -14,9 +14,11 @@ import {
 import {
   aggregateTools,
   dispatchTool,
+  exposeTool,
   initializeResult,
   jsonRpcError,
   jsonRpcResult,
+  toolOverridesOf,
 } from "./lib/gateway.mjs";
 import { listBackendTools } from "./lib/mcp-client.mjs";
 
@@ -80,26 +82,66 @@ function match(pathname, pattern) {
   return params;
 }
 
+function httpError(status, message) {
+  const err = new Error(message);
+  err.status = status;
+  return err;
+}
+
 function normalizeConnector(input, existing) {
-  const url = String(input.url || "").trim();
-  if (!url) {
-    const err = new Error("URL kerak");
-    err.status = 400;
-    throw err;
-  }
+  const url = String(input.url ?? existing?.url ?? "").trim();
+  if (!url) throw httpError(400, "URL kerak");
+  if (!/^https?:\/\//i.test(url)) throw httpError(400, "URL http:// yoki https:// bilan boshlanishi kerak");
   const name = String(input.name || existing?.name || "MCP").trim();
   const prefix = slugify(input.prefix || existing?.prefix || name);
+  // Tahrirda maydonni bo'sh qoldirib tozalash mumkin (undefined = o'zgartirilmaydi).
+  const pick = (key) => (input[key] !== undefined ? String(input[key] ?? "").trim() : String(existing?.[key] || ""));
   return {
     id: existing?.id || token(6),
     name,
     prefix,
     url,
-    authHeader: String(input.authHeader || existing?.authHeader || "").trim(),
-    authValue: String(input.authValue || existing?.authValue || "").trim(),
+    authHeader: pick("authHeader"),
+    authValue: pick("authValue"),
     enabled: input.enabled === undefined ? existing?.enabled ?? true : Boolean(input.enabled),
+    toolOverrides: existing?.toolOverrides || {},
     createdAt: existing?.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
+}
+
+// Bitta tool uchun tahrir: nom, tavsif, inputSchema, yoqilgan/o'chirilgan. Bo'sh maydon = asl qiymat.
+function normalizeToolOverride(input, prefix) {
+  const out = {};
+  const name = String(input?.name ?? "").trim();
+  if (name) {
+    if (!/^[a-zA-Z0-9_-]{1,64}$/.test(name)) {
+      throw httpError(400, "Tool nomi: faqat harf, raqam, _ va - (1-64 belgi)");
+    }
+    if (`${prefix}__${name}`.length > 64) {
+      throw httpError(400, "prefix__nom 64 belgidan oshmasin");
+    }
+    out.name = name;
+  }
+  if (typeof input?.description === "string" && input.description.trim() !== "") {
+    out.description = input.description.slice(0, 8000);
+  }
+  if (input?.inputSchema !== undefined && input.inputSchema !== null && input.inputSchema !== "") {
+    let schema = input.inputSchema;
+    if (typeof schema === "string") {
+      try {
+        schema = JSON.parse(schema);
+      } catch {
+        throw httpError(400, "inputSchema to'g'ri JSON emas");
+      }
+    }
+    if (!schema || typeof schema !== "object" || Array.isArray(schema) || schema.type !== "object") {
+      throw httpError(400, "inputSchema obyekt bo'lishi va type: \"object\" bo'lishi kerak");
+    }
+    out.inputSchema = schema;
+  }
+  if (input?.enabled === false) out.enabled = false;
+  return Object.keys(out).length ? out : null;
 }
 
 function mcpHeaders(sessionId) {
@@ -323,6 +365,9 @@ const server = http.createServer(async (req, res) => {
       if (!current) return send(res, 404, { error: "Connector topilmadi" });
       const { _password: _p3, password: _p4, ...putBody } = body;
       const next = normalizeConnector(putBody, current);
+      if (account.connectors.some((x) => x.id !== current.id && x.prefix === next.prefix)) {
+        return send(res, 409, { error: "Bu prefix band — boshqa prefix tanlang" });
+      }
       account.connectors = account.connectors.map((x) => (x.id === current.id ? next : x));
       await saveAccount(account);
       return send(res, 200, next);
@@ -356,6 +401,73 @@ const server = http.createServer(async (req, res) => {
       } catch (err) {
         return send(res, 200, { ok: false, error: err.message });
       }
+    }
+
+    // Connector tool'lari: ro'yxat (POST), tahrirlash (PUT), asl holiga qaytarish (DELETE)
+    m = match(p, "/api/account/:accountId/connectors/:id/tools");
+    if (m && (req.method === "POST" || req.method === "PUT" || req.method === "DELETE")) {
+      const body = await readBody(req);
+      const pass = passwordFrom(req) || body?._password || body?.password;
+      const account = await requireAdmin(m.accountId, pass);
+      const connector = account.connectors.find((x) => x.id === m.id);
+      if (!connector) return send(res, 404, { error: "Connector topilmadi" });
+
+      if (req.method === "POST") {
+        let result;
+        try {
+          result = await listBackendTools(connector, 20000);
+        } catch (err) {
+          return send(res, 200, { ok: false, error: err.message });
+        }
+        const overrides = toolOverridesOf(connector);
+        return send(res, 200, {
+          ok: true,
+          serverInfo: result.serverInfo,
+          prefix: connector.prefix,
+          tools: result.tools.map((t) => ({
+            name: t.name,
+            description: t.description || "",
+            inputSchema: t.inputSchema || { type: "object", properties: {} },
+            override: overrides[t.name] || null,
+            exposedName: exposeTool(connector, t)?.name || null,
+          })),
+        });
+      }
+
+      const toolKey = String(body?.tool || "").trim();
+      if (!toolKey) return send(res, 400, { error: "tool nomi kerak" });
+      const overrides = { ...toolOverridesOf(connector) };
+
+      if (req.method === "DELETE") {
+        delete overrides[toolKey];
+      } else {
+        const clean = normalizeToolOverride(body?.override ?? body, connector.prefix);
+        if (clean) overrides[toolKey] = clean;
+        else delete overrides[toolKey];
+        if (clean?.name) {
+          // Nom to'qnashuvini tekshirish (backend tool'lari + boshqa nomi o'zgargan tool'lar)
+          let backendTools = null;
+          try {
+            backendTools = (await listBackendTools(connector, 15000)).tools;
+          } catch {
+            /* backend javob bermasa, faqat override'lar ichida tekshiramiz */
+          }
+          const probe = { ...connector, toolOverrides: overrides };
+          const seen = new Set();
+          const names = backendTools
+            ? backendTools.map((t) => exposeTool(probe, t)?.name).filter(Boolean)
+            : Object.values(overrides).filter((o) => o.name && o.enabled !== false).map((o) => `${connector.prefix}__${o.name}`);
+          for (const n of names) {
+            if (seen.has(n)) return send(res, 409, { error: `Bu nom band: ${n}` });
+            seen.add(n);
+          }
+        }
+      }
+
+      connector.toolOverrides = overrides;
+      connector.updatedAt = new Date().toISOString();
+      await saveAccount(account);
+      return send(res, 200, { ok: true, override: overrides[toolKey] || null });
     }
 
     // MCP endpoint
