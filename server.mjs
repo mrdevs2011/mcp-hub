@@ -14,6 +14,7 @@ import {
 import {
   aggregateTools,
   dispatchTool,
+  executeBackendTool,
   exposeTool,
   initializeResult,
   jsonRpcError,
@@ -110,22 +111,37 @@ function normalizeConnector(input, existing) {
   };
 }
 
-// Bitta tool uchun tahrir: nom, tavsif, inputSchema, yoqilgan/o'chirilgan. Bo'sh maydon = asl qiymat.
+// Bitta tool uchun to'liq tahrir: nom, exactName, backendName, tavsif, inputSchema,
+// defaultArgs, fixedArgs, timeoutMs, readOnly, requiresConfirmation, annotations, yoqilgan/o'chirilgan.
 function normalizeToolOverride(input, prefix) {
+  if (!input || typeof input !== "object") return null;
   const out = {};
+
   const name = String(input?.name ?? "").trim();
   if (name) {
     if (!/^[a-zA-Z0-9_-]{1,64}$/.test(name)) {
       throw httpError(400, "Tool nomi: faqat harf, raqam, _ va - (1-64 belgi)");
     }
-    if (`${prefix}__${name}`.length > 64) {
+    const exactName = Boolean(input.exactName);
+    if (!exactName && `${prefix}__${name}`.length > 64) {
       throw httpError(400, "prefix__nom 64 belgidan oshmasin");
     }
     out.name = name;
+    if (exactName) out.exactName = true;
   }
-  if (typeof input?.description === "string" && input.description.trim() !== "") {
-    out.description = input.description.slice(0, 8000);
+
+  const backendName = String(input?.backendName ?? "").trim();
+  if (backendName) {
+    out.backendName = backendName;
   }
+
+  if (input?.description !== undefined && input?.description !== null) {
+    out.description = String(input.description).slice(0, 8000);
+  }
+  if (input?.includePrefixInDescription !== undefined) {
+    out.includePrefixInDescription = Boolean(input.includePrefixInDescription);
+  }
+
   if (input?.inputSchema !== undefined && input.inputSchema !== null && input.inputSchema !== "") {
     let schema = input.inputSchema;
     if (typeof schema === "string") {
@@ -140,7 +156,42 @@ function normalizeToolOverride(input, prefix) {
     }
     out.inputSchema = schema;
   }
-  if (input?.enabled === false) out.enabled = false;
+
+  if (input?.defaultArgs !== undefined && input.defaultArgs !== null) {
+    let dArgs = input.defaultArgs;
+    if (typeof dArgs === "string" && dArgs.trim()) {
+      try { dArgs = JSON.parse(dArgs); } catch { throw httpError(400, "defaultArgs to'g'ri JSON emas"); }
+    }
+    if (dArgs && typeof dArgs === "object" && !Array.isArray(dArgs)) {
+      out.defaultArgs = dArgs;
+    }
+  }
+
+  if (input?.fixedArgs !== undefined && input.fixedArgs !== null) {
+    let fArgs = input.fixedArgs;
+    if (typeof fArgs === "string" && fArgs.trim()) {
+      try { fArgs = JSON.parse(fArgs); } catch { throw httpError(400, "fixedArgs to'g'ri JSON emas"); }
+    }
+    if (fArgs && typeof fArgs === "object" && !Array.isArray(fArgs)) {
+      out.fixedArgs = fArgs;
+    }
+  }
+
+  if (input?.timeoutMs !== undefined && input.timeoutMs !== null && input.timeoutMs !== "") {
+    const t = Number(input.timeoutMs);
+    if (!Number.isNaN(t) && t > 0) {
+      out.timeoutMs = t <= 600 ? t * 1000 : t;
+    }
+  }
+
+  if (input?.readOnly !== undefined) out.readOnly = Boolean(input.readOnly);
+  if (input?.requiresConfirmation !== undefined) out.requiresConfirmation = Boolean(input.requiresConfirmation);
+  if (input?.annotations && typeof input.annotations === "object" && !Array.isArray(input.annotations)) {
+    out.annotations = input.annotations;
+  }
+
+  if (input?.enabled !== undefined) out.enabled = Boolean(input.enabled);
+
   return Object.keys(out).length ? out : null;
 }
 
@@ -403,34 +454,89 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
-    // Connector tool'lari: ro'yxat (POST), tahrirlash (PUT), asl holiga qaytarish (DELETE)
-    m = match(p, "/api/account/:accountId/connectors/:id/tools");
-    if (m && (req.method === "POST" || req.method === "PUT" || req.method === "DELETE")) {
+    // Connector tool'ini test qilish (call)
+    m = match(p, "/api/account/:accountId/connectors/:id/tools/call");
+    if (m && req.method === "POST") {
       const body = await readBody(req);
       const pass = passwordFrom(req) || body?._password || body?.password;
       const account = await requireAdmin(m.accountId, pass);
       const connector = account.connectors.find((x) => x.id === m.id);
       if (!connector) return send(res, 404, { error: "Connector topilmadi" });
 
-      if (req.method === "POST") {
-        let result;
+      const toolKey = String(body?.tool || "").trim();
+      if (!toolKey) return send(res, 400, { error: "tool nomi kerak" });
+      const overrides = toolOverridesOf(connector);
+      const ov = overrides[toolKey] || {};
+      const backendName = ov.backendName || toolKey;
+      const args = body.arguments && typeof body.arguments === "object" ? body.arguments : {};
+      try {
+        const result = await executeBackendTool(connector, backendName, ov, args);
+        return send(res, 200, { ok: true, result });
+      } catch (err) {
+        return send(res, 200, { ok: false, error: err.message });
+      }
+    }
+
+    // Connector tool'lari: ro'yxat (GET/POST), tahrirlash (PUT), asl holiga qaytarish (DELETE)
+    m = match(p, "/api/account/:accountId/connectors/:id/tools");
+    if (m && (req.method === "POST" || req.method === "GET" || req.method === "PUT" || req.method === "DELETE")) {
+      const body = await readBody(req).catch(() => ({}));
+      const pass = passwordFrom(req) || body?._password || body?.password;
+      const account = await requireAdmin(m.accountId, pass);
+      const connector = account.connectors.find((x) => x.id === m.id);
+      if (!connector) return send(res, 404, { error: "Connector topilmadi" });
+
+      if (req.method === "POST" || req.method === "GET") {
+        let result = null;
+        let warning = null;
         try {
-          result = await listBackendTools(connector, 20000);
+          result = await listBackendTools(connector, 15000);
+          connector.toolsCache = result.tools;
+          await saveAccount(account);
         } catch (err) {
-          return send(res, 200, { ok: false, error: err.message });
+          warning = err.message;
         }
+
         const overrides = toolOverridesOf(connector);
-        return send(res, 200, {
-          ok: true,
-          serverInfo: result.serverInfo,
-          prefix: connector.prefix,
-          tools: result.tools.map((t) => ({
+        const backendTools = result?.tools || connector.toolsCache || [];
+        const toolMap = new Map();
+
+        for (const t of backendTools) {
+          toolMap.set(t.name, {
             name: t.name,
             description: t.description || "",
             inputSchema: t.inputSchema || { type: "object", properties: {} },
             override: overrides[t.name] || null,
             exposedName: exposeTool(connector, t)?.name || null,
-          })),
+            isCustom: false,
+          });
+        }
+
+        // Custom toollar (backend ro'yxatida yo'q, lekin overrides da bor)
+        for (const [toolName, ov] of Object.entries(overrides)) {
+          if (!toolMap.has(toolName) && ov) {
+            const mock = {
+              name: toolName,
+              description: ov.description || "",
+              inputSchema: ov.inputSchema || { type: "object", properties: {} },
+            };
+            toolMap.set(toolName, {
+              name: toolName,
+              description: ov.description || "",
+              inputSchema: ov.inputSchema || { type: "object", properties: {} },
+              override: ov,
+              exposedName: exposeTool(connector, mock)?.name || null,
+              isCustom: true,
+            });
+          }
+        }
+
+        return send(res, 200, {
+          ok: true,
+          warning,
+          serverInfo: result?.serverInfo || null,
+          prefix: connector.prefix,
+          tools: Array.from(toolMap.values()),
         });
       }
 
@@ -446,17 +552,21 @@ const server = http.createServer(async (req, res) => {
         else delete overrides[toolKey];
         if (clean?.name) {
           // Nom to'qnashuvini tekshirish (backend tool'lari + boshqa nomi o'zgargan tool'lar)
-          let backendTools = null;
-          try {
-            backendTools = (await listBackendTools(connector, 15000)).tools;
-          } catch {
-            /* backend javob bermasa, faqat override'lar ichida tekshiramiz */
+          let backendTools = connector.toolsCache || null;
+          if (!backendTools) {
+            try {
+              backendTools = (await listBackendTools(connector, 10000)).tools;
+            } catch {
+              /* backend javob bermasa, mavjud cache/overrides orqali tekshiramiz */
+            }
           }
           const probe = { ...connector, toolOverrides: overrides };
           const seen = new Set();
           const names = backendTools
             ? backendTools.map((t) => exposeTool(probe, t)?.name).filter(Boolean)
-            : Object.values(overrides).filter((o) => o.name && o.enabled !== false).map((o) => `${connector.prefix}__${o.name}`);
+            : Object.values(overrides)
+                .filter((o) => o.name && o.enabled !== false)
+                .map((o) => (o.exactName ? o.name : `${connector.prefix}__${o.name}`));
           for (const n of names) {
             if (seen.has(n)) return send(res, 409, { error: `Bu nom band: ${n}` });
             seen.add(n);
@@ -483,11 +593,13 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+export { server };
+
 export default function vercel(req, res) {
   server.emit("request", req, res);
 }
 
-if (!process.env.VERCEL) {
+if (!process.env.VERCEL && !process.env.NODE_TEST_CONTEXT) {
   server.listen(PORT, () => {
     console.log(`MCP Hub: http://localhost:${PORT}`);
   });
