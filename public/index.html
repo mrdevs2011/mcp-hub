@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>MCP Hub - With MR</title>
+  <title>MCP Hub — Gateway for Claude & AI Agents</title>
   <link rel="icon" href="/favicon.ico" sizes="any" />
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
   <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
@@ -19,8 +19,14 @@
 
   <header class="topbar">
     <div class="logo">
-      <img src="/logo.png" alt="MCP Hub" class="logo-img" width="28" height="28" />
-      <span class="logo-bracket"></span>MCP<span class="logo-accent">HUB</span><span class="logo-bracket"></span>
+      <div class="logo-badge">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+          <polyline points="2 17 12 22 22 17"></polyline>
+          <polyline points="2 12 12 17 22 12"></polyline>
+        </svg>
+      </div>
+      <span>MCP<span class="logo-accent">HUB</span></span>
     </div>
     <div id="top-actions" class="top-actions"></div>
   </header>
@@ -28,10 +34,10 @@
   <main class="wrap">
     <section class="hero">
       <div class="hero-tag">
-        <span class="dot"></span>BY MUHAMMADRASUL CREATED!
+        <span class="dot"></span>UNIVERSAL MCP GATEWAY
       </div>
-      <h1>Ko'p MCP'LARNI,<br><span class="h1-accent">Bitta URL ORQALI BOSHQAR.</span></h1>
-      <p class="lead">AgentAI ga faqat bitta manzil. Yangi connector qo'shsang ham URL o'zgarmaydi.</p>
+      <h1>Ko'p MCP'larni,<br><span class="h1-accent">Bitta URL orqali boshqar.</span></h1>
+      <p class="lead">Claude va AgentAI ga yagona xavfsiz manzil. Yangi connector qo'shsangiz ham asosiy URL hech qachon o'zgarmaydi.</p>
     </section>
 
     <section id="auth" class="auth-wrap"></section>
